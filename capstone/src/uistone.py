@@ -170,6 +170,42 @@ CUSTOM_CSS = f"""
     color: {COLORS['text_primary']};
     flex: 1;
 }}
+
+/* Category filter cards (Batch Upload tab) */
+#cat-all, #cat-toxic, #cat-neg, #cat-neutral {{
+    height: auto !important;
+    min-height: 68px;
+    flex-direction: column;
+    align-items: flex-start !important;
+    justify-content: center;
+    padding: 0.7rem 1rem !important;
+    border-radius: 12px !important;
+    white-space: pre-line;
+    font-weight: 500;
+    font-size: 20px !important;
+    line-height: 1.4;
+    text-align: left;
+}}
+#cat-all {{
+    background: transparent !important;
+    border: 2px solid #378ADD !important;
+    color: {COLORS['text_primary']} !important;
+}}
+#cat-toxic {{
+    background: {COLORS['toxic_bg']} !important;
+    border: none !important;
+    color: {COLORS['toxic_text']} !important;
+}}
+#cat-neg {{
+    background: {COLORS['warn_bg']} !important;
+    border: none !important;
+    color: {COLORS['warn_text']} !important;
+}}
+#cat-neutral {{
+    background: {COLORS['neutral_bg']} !important;
+    border: 0.5px solid {COLORS['border']} !important;
+    color: {COLORS['text_primary']} !important;
+}}
 """
 
 
@@ -268,7 +304,7 @@ def classify_single(review_text, history):
 
 def classify_batch(file, history):
     if file is None:
-        return None, "<p style='color:#888780;'>Upload a CSV with a 'review' column.</p>", "0", "0", "0", "0", history, render_history(history)
+        return None, "<p style='color:#888780;'>Upload a CSV with a 'review' column.</p>", "All\n0", "Toxic\n0", "Constructive Negative\n0", "Neutral\n0", history, render_history(history)
 
     df = pd.read_csv(file.name)
     # expects a column literally named "review"; fall back to first column
@@ -286,10 +322,10 @@ def classify_batch(file, history):
     return (
         result_df,
         render_review_list(result_df, "All"),
-        str(total),
-        str(toxic),
-        str(neg),
-        str(neutral),
+        f"All\n{total}",
+        f"Toxic\n{toxic}",
+        f"Constructive Negative\n{neg}",
+        f"Neutral\n{neutral}",
         history,
         render_history(history),
     )
@@ -321,7 +357,7 @@ with gr.Blocks(title="Steam Toxicity Classifier") as demo:
         # --- Sidebar ---
         with gr.Column(scale=1, elem_id="sidebar"):
             gr.Markdown("🛡️ **Toxicity Classifier**")
-            gr.Button("+ New review", size="sm")
+            new_review_btn = gr.Button("+ New review", size="sm")
             gr.Markdown("Recent", elem_classes="sidebar-label")
             history_display = gr.HTML(render_history([]))
             gr.Markdown("---")
@@ -345,16 +381,22 @@ with gr.Blocks(title="Steam Toxicity Classifier") as demo:
                         outputs=[single_result, history_state, history_display],
                     )
 
+                    new_review_btn.click(
+                        fn=lambda: ("", ""),
+                        inputs=None,
+                        outputs=[review_input, single_result],
+                    )
+
                 with gr.Tab("Batch Upload"):
                     with gr.Row():
                         file_input = gr.File(label="Upload CSV of reviews", file_types=[".csv"])
                         upload_btn = gr.Button("Classify batch")
 
                     with gr.Row():
-                        all_count = gr.Button("All\n0", size="sm")
-                        toxic_count = gr.Button("Toxic\n0", size="sm")
-                        neg_count = gr.Button("Constructive Negative\n0", size="sm")
-                        neutral_count = gr.Button("Neutral\n0", size="sm")
+                        all_count = gr.Button("All\n0", size="sm", elem_id="cat-all")
+                        toxic_count = gr.Button("Toxic\n0", size="sm", elem_id="cat-toxic")
+                        neg_count = gr.Button("Constructive Negative\n0", size="sm", elem_id="cat-neg")
+                        neutral_count = gr.Button("Neutral\n0", size="sm", elem_id="cat-neutral")
 
                     review_list = gr.HTML()
 
