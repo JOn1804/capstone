@@ -24,8 +24,14 @@ import random
 # training to finish. NOTE: as of now it's unconfirmed whether models/phase2
 # has actually finished training — check with Jon before flipping this off.
 
-USE_DUMMY_MODEL = True
-MODEL_DIR = "models/phase2"  # Phase 2 = Jigsaw pretrain + Helldivers 2 fine-tune (the real one)
+USE_DUMMY_MODEL = False
+
+# Resolves to capstone/models/phase2 no matter where you run `python app.py`
+# from (capstone/ or capstone/src/) — avoids the classic "works on my machine,
+# FileNotFoundError on yours" bug caused by relative-path assumptions.
+import os
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_DIR = os.path.join(_THIS_DIR, "..", "models", "phase2")
 
 # Matches predict.py's label_names exactly — do not reorder without checking
 # with Jon, since this must match however train.py / train_phase2.py encoded
