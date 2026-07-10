@@ -131,13 +131,49 @@ CUSTOM_CSS = f"""
     border-radius: 12px;
     padding: 1rem;
     border: 0.5px solid {COLORS['border']};
+    position: sticky;
+    top: 16px;
+    align-self: flex-start;
 }}
 #main-card {{
     background: {COLORS['surface2']};
     border-radius: 12px;
     padding: 1.25rem;
     border: 0.5px solid {COLORS['border']};
+    max-height: calc(100vh - 32px);
+    overflow-y: auto;
 }}
+#history-list {{
+    max-height: 410px !important;
+    overflow-y: auto !important;
+    display: block !important;
+}}
+
+/* Custom scrollbars — Chrome/Edge/Safari (webkit) */
+#history-list::-webkit-scrollbar,
+#main-card::-webkit-scrollbar {{
+    width: 8px;
+}}
+#history-list::-webkit-scrollbar-track,
+#main-card::-webkit-scrollbar-track {{
+    background: transparent;
+}}
+#history-list::-webkit-scrollbar-thumb,
+#main-card::-webkit-scrollbar-thumb {{
+    background-color: rgba(255,255,255,0.15);
+    border-radius: 8px;
+}}
+#history-list::-webkit-scrollbar-thumb:hover,
+#main-card::-webkit-scrollbar-thumb:hover {{
+    background-color: rgba(255,255,255,0.28);
+}}
+
+/* Firefox */
+#history-list, #main-card {{
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255,255,255,0.15) transparent;
+}}
+
 .result-card {{
     border-radius: 8px;
     padding: 1rem;
@@ -278,7 +314,7 @@ def render_history(history: list):
     if not history:
         return f"<p style='color:{COLORS['text_muted']}; font-size:12px;'>Nothing classified yet.</p>"
     items = ""
-    for entry in reversed(history[-15:]):
+    for entry in reversed(history[-50:]):
         _, dot_color = badge_colors(entry["label"])
         snippet = entry["review"][:28] + ("..." if len(entry["review"]) > 28 else "")
         items += f"""
@@ -359,14 +395,14 @@ with gr.Blocks(title="Steam Toxicity Classifier") as demo:
             gr.Markdown("🛡️ **Toxicity Classifier**")
             new_review_btn = gr.Button("+ New review", size="sm")
             gr.Markdown("Recent", elem_classes="sidebar-label")
-            history_display = gr.HTML(render_history([]))
+            history_display = gr.HTML(render_history([]), elem_id="history-list")
             gr.Markdown("---")
             gr.Markdown(f"<span style='color:{COLORS['text_muted']}; font-size:11px;'>DistilBERT · fine-tuned</span>")
 
         # --- Main content ---
         with gr.Column(scale=4, elem_id="main-card"):
-            with gr.Tabs():
-                with gr.Tab("Single review"):
+            with gr.Tabs() as tabs:
+                with gr.Tab("Single review", id=0):
                     review_input = gr.Textbox(
                         label="Paste a Steam review",
                         placeholder="This game is absolute trash, the devs should...",
@@ -382,12 +418,12 @@ with gr.Blocks(title="Steam Toxicity Classifier") as demo:
                     )
 
                     new_review_btn.click(
-                        fn=lambda: ("", ""),
+                        fn=lambda: ("", "", gr.Tabs(selected=0)),
                         inputs=None,
-                        outputs=[review_input, single_result],
+                        outputs=[review_input, single_result, tabs],
                     )
 
-                with gr.Tab("Batch Upload"):
+                with gr.Tab("Batch Upload", id=1):
                     with gr.Row():
                         file_input = gr.File(label="Upload CSV of reviews", file_types=[".csv"])
                         upload_btn = gr.Button("Classify batch")
