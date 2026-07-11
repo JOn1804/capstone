@@ -14,8 +14,11 @@ Fine-tuned on Helldivers 2 Steam reviews using a two-phase transfer learning app
 | Member | Role |
 |        |      |
 | Jonard Doctolero    | AI/ML Lead — model training, dataset sourcing, project management, and documentation |
+
 | Aaron Kyle Camagong | Dataset cleaning, labeling, QA, and user manual documentation |
+
 | Zandrojay Allam     | Dataset cleaning, labeling, QA, and user manual documentation |
+
 | Jerome Devaras      | UI/Dashboard development (Gradio) and user manual documentation |
 
 ---
