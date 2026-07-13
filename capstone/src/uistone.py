@@ -449,4 +449,12 @@ with gr.Blocks(title="Steam Toxicity Classifier") as demo:
 
 
 if __name__ == "__main__":
+    import webbrowser
+    import threading
+
+    def _open_dark_mode():
+        webbrowser.open("http://127.0.0.1:7860/?__theme=dark")
+
+    # Give the server a moment to start before opening the browser tab
+    threading.Timer(1.5, _open_dark_mode).start()
     demo.launch(theme=theme, css=CUSTOM_CSS)
