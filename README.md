@@ -67,7 +67,7 @@ capstone/
 
 ### 5. Run the app
 ```
-python app.py
+python uistone.py
 ```
 
 Open your browser and go to the local URL shown in the terminal (usually `http://127.0.0.1:7860`).
