@@ -143,6 +143,16 @@ CUSTOM_CSS = f"""
     max-height: calc(100vh - 32px);
     overflow-y: auto;
 }}
+#pagination-row {{
+    justify-content: flex-start !important;
+    align-items: center;
+    gap: 12px;
+    margin-top: 8px;
+}}
+#pagination-row button {{
+    min-width: unset !important;
+    padding: 6px 14px !important;
+}}
 #history-list {{
     max-height: 410px !important;
     overflow-y: auto !important;
@@ -279,13 +289,29 @@ def badge_colors(label: str):
     return COLORS["neutral_bg"], COLORS["neutral_text"]
 
 
-def render_review_list(df: pd.DataFrame, filter_label: str = "All", limit: int = 20):
-    if df is None or df.empty:
-        return "<p style='color:#888780; font-size:13px;'>Upload a CSV to see results here.</p>"
+PAGE_SIZE = 10
 
-    shown = df if filter_label == "All" else df[df["label"] == filter_label]
+
+def _filtered_df(df: pd.DataFrame, filter_label: str):
+    if df is None or df.empty:
+        return pd.DataFrame()
+    return df if filter_label == "All" else df[df["label"] == filter_label]
+
+
+def render_review_page(df: pd.DataFrame, filter_label: str = "All", page: int = 0):
+    """Returns (rows_html, page_indicator_html, clamped_page)."""
+    filtered = _filtered_df(df, filter_label)
+    if filtered.empty:
+        empty_msg = "<p style='color:#888780; font-size:13px;'>Upload a CSV to see results here.</p>"
+        return empty_msg, "", 0
+
+    total_pages = max(1, -(-len(filtered) // PAGE_SIZE))  # ceil division
+    page = max(0, min(page, total_pages - 1))
+    start = page * PAGE_SIZE
+    chunk = filtered.iloc[start:start + PAGE_SIZE]
+
     rows_html = ""
-    for _, row in shown.head(limit).iterrows():
+    for _, row in chunk.iterrows():
         bg, txt = badge_colors(row["label"])
         rows_html += f"""
         <div class="review-row">
@@ -293,8 +319,9 @@ def render_review_list(df: pd.DataFrame, filter_label: str = "All", limit: int =
           <span class="badge" style="background:{bg}; color:{txt};">{row['label']} &middot; {int(row['confidence']*100)}%</span>
         </div>
         """
-    footer = f"<p style='font-size:12px; color:{COLORS['text_muted']}; margin-top:8px;'>Showing {min(limit, len(shown))} of {len(shown)} {filter_label.lower() if filter_label != 'All' else ''} reviews</p>"
-    return rows_html + footer
+    label_word = filter_label.lower() if filter_label != "All" else ""
+    indicator = f"<span style='font-size:12px; color:{COLORS['text_muted']};'>Page {page + 1} of {total_pages} &middot; {len(filtered)} {label_word} reviews</span>"
+    return rows_html, indicator, page
 
 
 def render_category_counts(df: pd.DataFrame):
@@ -340,7 +367,7 @@ def classify_single(review_text, history):
 
 def classify_batch(file, history):
     if file is None:
-        return None, "<p style='color:#888780;'>Upload a CSV with a 'review' column.</p>", "All\n0", "Toxic\n0", "Constructive Negative\n0", "Neutral\n0", history, render_history(history)
+        return None, "<p style='color:#888780;'>Upload a CSV with a 'review' column.</p>", "", "All\n0", "Toxic\n0", "Constructive Negative\n0", "Neutral\n0", history, render_history(history), "All", 0
 
     df = pd.read_csv(file.name)
     # expects a column literally named "review"; fall back to first column
@@ -355,20 +382,30 @@ def classify_batch(file, history):
 
     result_df = pd.DataFrame({"review": df[col], "label": labels, "confidence": confs})
     total, toxic, neg, neutral = render_category_counts(result_df)
+    rows_html, indicator, page = render_review_page(result_df, "All", 0)
     return (
         result_df,
-        render_review_list(result_df, "All"),
+        rows_html,
+        indicator,
         f"All\n{total}",
         f"Toxic\n{toxic}",
         f"Constructive Negative\n{neg}",
         f"Neutral\n{neutral}",
         history,
         render_history(history),
+        "All",
+        page,
     )
 
 
-def filter_reviews(result_df, label):
-    return render_review_list(result_df, label)
+def on_category_click(result_df, label):
+    rows_html, indicator, page = render_review_page(result_df, label, 0)
+    return rows_html, indicator, label, page
+
+
+def on_page_change(result_df, filter_label, page, delta):
+    rows_html, indicator, page = render_review_page(result_df, filter_label, page + delta)
+    return rows_html, indicator, page
 
 
 # ---------------------------------------------------------------------------
@@ -412,9 +449,17 @@ with gr.Blocks(title="Steam Toxicity Classifier") as demo:
                     single_result = gr.HTML()
 
                     classify_btn.click(
+                        fn=lambda: gr.update(value="Classifying...", interactive=False),
+                        inputs=None,
+                        outputs=classify_btn,
+                    ).then(
                         fn=classify_single,
                         inputs=[review_input, history_state],
                         outputs=[single_result, history_state, history_display],
+                    ).then(
+                        fn=lambda: gr.update(value="Classify", interactive=True),
+                        inputs=None,
+                        outputs=classify_btn,
                     )
 
                     new_review_btn.click(
@@ -436,16 +481,35 @@ with gr.Blocks(title="Steam Toxicity Classifier") as demo:
 
                     review_list = gr.HTML()
 
+                    filter_state = gr.State("All")
+                    page_state = gr.State(0)
+
+                    with gr.Row(elem_id="pagination-row"):
+                        prev_btn = gr.Button("< Prev", size="sm", scale=0)
+                        page_indicator = gr.HTML()
+                        next_btn = gr.Button("Next >", size="sm", scale=0)
+
                     upload_btn.click(
+                        fn=lambda: gr.update(value="Classifying...", interactive=False),
+                        inputs=None,
+                        outputs=upload_btn,
+                    ).then(
                         fn=classify_batch,
                         inputs=[file_input, history_state],
-                        outputs=[batch_state, review_list, all_count, toxic_count, neg_count, neutral_count, history_state, history_display],
+                        outputs=[batch_state, review_list, page_indicator, all_count, toxic_count, neg_count, neutral_count, history_state, history_display, filter_state, page_state],
+                    ).then(
+                        fn=lambda: gr.update(value="Classify batch", interactive=True),
+                        inputs=None,
+                        outputs=upload_btn,
                     )
 
-                    all_count.click(fn=lambda df: filter_reviews(df, "All"), inputs=batch_state, outputs=review_list)
-                    toxic_count.click(fn=lambda df: filter_reviews(df, "Toxic"), inputs=batch_state, outputs=review_list)
-                    neg_count.click(fn=lambda df: filter_reviews(df, "Constructive Negative"), inputs=batch_state, outputs=review_list)
-                    neutral_count.click(fn=lambda df: filter_reviews(df, "Neutral"), inputs=batch_state, outputs=review_list)
+                    all_count.click(fn=lambda df: on_category_click(df, "All"), inputs=batch_state, outputs=[review_list, page_indicator, filter_state, page_state])
+                    toxic_count.click(fn=lambda df: on_category_click(df, "Toxic"), inputs=batch_state, outputs=[review_list, page_indicator, filter_state, page_state])
+                    neg_count.click(fn=lambda df: on_category_click(df, "Constructive Negative"), inputs=batch_state, outputs=[review_list, page_indicator, filter_state, page_state])
+                    neutral_count.click(fn=lambda df: on_category_click(df, "Neutral"), inputs=batch_state, outputs=[review_list, page_indicator, filter_state, page_state])
+
+                    prev_btn.click(fn=lambda df, label, page: on_page_change(df, label, page, -1), inputs=[batch_state, filter_state, page_state], outputs=[review_list, page_indicator, page_state])
+                    next_btn.click(fn=lambda df, label, page: on_page_change(df, label, page, 1), inputs=[batch_state, filter_state, page_state], outputs=[review_list, page_indicator, page_state])
 
 
 if __name__ == "__main__":
@@ -457,4 +521,4 @@ if __name__ == "__main__":
 
     # Give the server a moment to start before opening the browser tab
     threading.Timer(1.5, _open_dark_mode).start()
-    demo.launch(theme=theme, css=CUSTOM_CSS)
+    demo.queue().launch(theme=theme, css=CUSTOM_CSS)
