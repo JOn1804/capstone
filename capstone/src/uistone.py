@@ -2,40 +2,16 @@ import gradio as gr
 import pandas as pd
 import random
 
-# ---------------------------------------------------------------------------
-# MODEL INTERFACE
-# ---------------------------------------------------------------------------
-# This mirrors capstone/src/predict.py from the team GitHub repo exactly, so
-# there's zero translation needed once Jon confirms models/phase2 is trained.
-#
-# CONTRACT (must not change, the rest of the UI depends on this shape):
-#   classify(text: str) -> (label: str, confidence: float)
-#   - label must be exactly one of: "Toxic", "Constructive Negative", "Neutral"
-#   - confidence is a float between 0 and 1
-#
-# HOW TO SWITCH ON THE REAL MODEL:
-#   1. Copy the models/phase2 folder (produced by train_phase2.py) into this
-#      project, or point MODEL_DIR at wherever it lives.
-#   2. Set USE_DUMMY_MODEL = False
-#   3. That's it — load_model() and classify() below match predict.py exactly.
-#
-# If USE_DUMMY_MODEL is True (default), a keyword-based fake classifier is used
-# instead, so the rest of the team can build/test the UI without waiting on
-# training to finish. NOTE: as of now it's unconfirmed whether models/phase2
-# has actually finished training — check with Jon before flipping this off.
+
 
 USE_DUMMY_MODEL = False
 
-# Resolves to capstone/models/phase2 no matter where you run `python app.py`
-# from (capstone/ or capstone/src/) — avoids the classic "works on my machine,
-# FileNotFoundError on yours" bug caused by relative-path assumptions.
+
 import os
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_DIR = os.path.join(_THIS_DIR, "..", "models", "phase2")
 
-# Matches predict.py's label_names exactly — do not reorder without checking
-# with Jon, since this must match however train.py / train_phase2.py encoded
-# labels during training (0/1/2 -> Neutral/Constructive Negative/Toxic).
+
 LABEL_MAP = {
     0: "Neutral",
     1: "Constructive Negative",
@@ -70,9 +46,7 @@ def classify(text: str):
     load_model()
     import torch
 
-    # padding='max_length', max_length=128 matches predict.py exactly —
-    # keeping this identical to how Jon evaluated the model avoids any
-    # train/inference mismatch.
+
     inputs = _tokenizer(
         text, truncation=True, padding="max_length", max_length=128, return_tensors="pt"
     ).to(_device)
@@ -87,7 +61,6 @@ def classify(text: str):
     return label, round(confidence, 2)
 
 
-# --- dummy fallback, only used while USE_DUMMY_MODEL = True ---
 TOXIC_WORDS = ["trash", "clowns", "hate", "garbage", "idiot", "worst", "stupid"]
 NEGATIVE_WORDS = ["broken", "bug", "matchmaking", "patch", "issue", "problem", "crash"]
 
