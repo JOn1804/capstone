@@ -1,0 +1,497 @@
+import gradio as gr
+import pandas as pd
+import random
+
+
+
+USE_DUMMY_MODEL = False
+
+
+import os
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_DIR = os.path.join(_THIS_DIR, "..", "models", "phase2")
+
+
+LABEL_MAP = {
+    0: "Neutral",
+    1: "Constructive Negative",
+    2: "Toxic",
+}
+
+_model = None
+_tokenizer = None
+_device = None
+
+
+def load_model():
+    """Loads the fine-tuned model once, on first real use. No-op in dummy mode."""
+    global _model, _tokenizer, _device
+    if USE_DUMMY_MODEL or _model is not None:
+        return
+
+    import torch
+    from transformers import DistilBertTokenizerFast, DistilBertForSequenceClassification
+
+    _device = "cuda" if torch.cuda.is_available() else "cpu"
+    _tokenizer = DistilBertTokenizerFast.from_pretrained(MODEL_DIR)
+    _model = DistilBertForSequenceClassification.from_pretrained(MODEL_DIR).to(_device)
+    _model.eval()
+
+
+def classify(text: str):
+    """Single entry point the rest of the app calls. Returns (label, confidence)."""
+    if USE_DUMMY_MODEL:
+        return _dummy_classify(text)
+
+    load_model()
+    import torch
+
+
+    inputs = _tokenizer(
+        text, truncation=True, padding="max_length", max_length=128, return_tensors="pt"
+    ).to(_device)
+
+    with torch.no_grad():
+        logits = _model(**inputs).logits
+
+    probs = torch.softmax(logits, dim=-1)[0]
+    pred_idx = int(torch.argmax(probs))
+    confidence = float(probs[pred_idx])
+    label = LABEL_MAP[pred_idx]
+    return label, round(confidence, 2)
+
+
+TOXIC_WORDS = ["trash", "clowns", "hate", "garbage", "idiot", "worst", "stupid"]
+NEGATIVE_WORDS = ["broken", "bug", "matchmaking", "patch", "issue", "problem", "crash"]
+
+
+def _dummy_classify(text: str):
+    text_lower = text.lower()
+    if any(w in text_lower for w in TOXIC_WORDS):
+        return "Toxic", round(random.uniform(0.75, 0.97), 2)
+    elif any(w in text_lower for w in NEGATIVE_WORDS):
+        return "Constructive Negative", round(random.uniform(0.65, 0.9), 2)
+    else:
+        return "Neutral", round(random.uniform(0.6, 0.95), 2)
+
+
+# ---------------------------------------------------------------------------
+# COLORS (from our dark mode palette)
+# ---------------------------------------------------------------------------
+COLORS = {
+    "bg": "#1A1A19",
+    "surface1": "#232322",
+    "surface2": "#2C2C2A",
+    "border": "rgba(255,255,255,0.15)",
+    "border_strong": "rgba(255,255,255,0.25)",
+    "text_primary": "#F5F4F0",
+    "text_secondary": "#B4B2A9",
+    "text_muted": "#888780",
+    "toxic_bg": "#501313",
+    "toxic_text": "#F09595",
+    "warn_bg": "#412402",
+    "warn_text": "#FAC775",
+    "neutral_bg": "#2C2C2A",
+    "neutral_text": "#B4B2A9",
+}
+
+CUSTOM_CSS = f"""
+.gradio-container {{
+    background: {COLORS['bg']} !important;
+}}
+#sidebar {{
+    background: {COLORS['surface1']};
+    border-radius: 12px;
+    padding: 1rem;
+    border: 0.5px solid {COLORS['border']};
+    position: sticky;
+    top: 16px;
+    align-self: flex-start;
+}}
+#main-card {{
+    background: {COLORS['surface2']};
+    border-radius: 12px;
+    padding: 1.25rem;
+    border: 0.5px solid {COLORS['border']};
+    max-height: calc(100vh - 32px);
+    overflow-y: auto;
+}}
+#pagination-row {{
+    justify-content: flex-start !important;
+    align-items: center;
+    gap: 12px;
+    margin-top: 8px;
+}}
+#pagination-row button {{
+    min-width: unset !important;
+    padding: 6px 14px !important;
+}}
+#history-list {{
+    max-height: 410px !important;
+    overflow-y: auto !important;
+    display: block !important;
+}}
+
+/* Custom scrollbars — Chrome/Edge/Safari (webkit) */
+#history-list::-webkit-scrollbar,
+#main-card::-webkit-scrollbar {{
+    width: 8px;
+}}
+#history-list::-webkit-scrollbar-track,
+#main-card::-webkit-scrollbar-track {{
+    background: transparent;
+}}
+#history-list::-webkit-scrollbar-thumb,
+#main-card::-webkit-scrollbar-thumb {{
+    background-color: rgba(255,255,255,0.15);
+    border-radius: 8px;
+}}
+#history-list::-webkit-scrollbar-thumb:hover,
+#main-card::-webkit-scrollbar-thumb:hover {{
+    background-color: rgba(255,255,255,0.28);
+}}
+
+/* Firefox */
+#history-list, #main-card {{
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255,255,255,0.15) transparent;
+}}
+
+.result-card {{
+    border-radius: 8px;
+    padding: 1rem;
+    text-align: center;
+}}
+.result-card p {{
+    margin: 0;
+}}
+.badge {{
+    font-size: 11.5px;
+    font-weight: 500;
+    padding: 3px 9px;
+    border-radius: 6px;
+    display: inline-block;
+    white-space: nowrap;
+}}
+.review-row {{
+    border: 0.5px solid {COLORS['border']};
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 8px;
+    background: {COLORS['surface1']};
+}}
+.review-text {{
+    font-size: 13.5px;
+    color: {COLORS['text_primary']};
+    flex: 1;
+}}
+
+/* Category filter cards (Batch Upload tab) */
+#cat-all, #cat-toxic, #cat-neg, #cat-neutral {{
+    height: auto !important;
+    min-height: 68px;
+    flex-direction: column;
+    align-items: flex-start !important;
+    justify-content: center;
+    padding: 0.7rem 1rem !important;
+    border-radius: 12px !important;
+    white-space: pre-line;
+    font-weight: 500;
+    font-size: 20px !important;
+    line-height: 1.4;
+    text-align: left;
+}}
+#cat-all {{
+    background: transparent !important;
+    border: 2px solid #378ADD !important;
+    color: {COLORS['text_primary']} !important;
+}}
+#cat-toxic {{
+    background: {COLORS['toxic_bg']} !important;
+    border: none !important;
+    color: {COLORS['toxic_text']} !important;
+}}
+#cat-neg {{
+    background: {COLORS['warn_bg']} !important;
+    border: none !important;
+    color: {COLORS['warn_text']} !important;
+}}
+#cat-neutral {{
+    background: {COLORS['neutral_bg']} !important;
+    border: 0.5px solid {COLORS['border']} !important;
+    color: {COLORS['text_primary']} !important;
+}}
+"""
+
+
+# ---------------------------------------------------------------------------
+# HTML RENDER HELPERS
+# ---------------------------------------------------------------------------
+
+def render_single_result(label: str, confidence: float):
+    if label == "Toxic":
+        bg, txt = COLORS["toxic_bg"], COLORS["toxic_text"]
+    elif label == "Constructive Negative":
+        bg, txt = COLORS["warn_bg"], COLORS["warn_text"]
+    else:
+        bg, txt = COLORS["neutral_bg"], COLORS["neutral_text"]
+
+    return f"""
+    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-top:14px;">
+      <div class="result-card" style="background:{bg};">
+        <p style="font-size:12px; color:{txt}; margin-bottom:4px;">Prediction</p>
+        <p style="font-size:20px; font-weight:500; color:{txt};">{label}</p>
+      </div>
+      <div class="result-card" style="background:{COLORS['surface1']};">
+        <p style="font-size:12px; color:{COLORS['text_secondary']}; margin-bottom:4px;">Confidence</p>
+        <p style="font-size:20px; font-weight:500; color:{COLORS['text_primary']};">{int(confidence*100)}%</p>
+      </div>
+    </div>
+    """
+
+
+def badge_colors(label: str):
+    if label == "Toxic":
+        return COLORS["toxic_bg"], COLORS["toxic_text"]
+    elif label == "Constructive Negative":
+        return COLORS["warn_bg"], COLORS["warn_text"]
+    return COLORS["neutral_bg"], COLORS["neutral_text"]
+
+
+PAGE_SIZE = 10
+
+
+def _filtered_df(df: pd.DataFrame, filter_label: str):
+    if df is None or df.empty:
+        return pd.DataFrame()
+    return df if filter_label == "All" else df[df["label"] == filter_label]
+
+
+def render_review_page(df: pd.DataFrame, filter_label: str = "All", page: int = 0):
+    """Returns (rows_html, page_indicator_html, clamped_page)."""
+    filtered = _filtered_df(df, filter_label)
+    if filtered.empty:
+        empty_msg = "<p style='color:#888780; font-size:13px;'>Upload a CSV to see results here.</p>"
+        return empty_msg, "", 0
+
+    total_pages = max(1, -(-len(filtered) // PAGE_SIZE))  # ceil division
+    page = max(0, min(page, total_pages - 1))
+    start = page * PAGE_SIZE
+    chunk = filtered.iloc[start:start + PAGE_SIZE]
+
+    rows_html = ""
+    for _, row in chunk.iterrows():
+        bg, txt = badge_colors(row["label"])
+        rows_html += f"""
+        <div class="review-row">
+          <p class="review-text">"{row['review']}"</p>
+          <span class="badge" style="background:{bg}; color:{txt};">{row['label']} &middot; {int(row['confidence']*100)}%</span>
+        </div>
+        """
+    label_word = filter_label.lower() if filter_label != "All" else ""
+    indicator = f"<span style='font-size:12px; color:{COLORS['text_muted']};'>Page {page + 1} of {total_pages} &middot; {len(filtered)} {label_word} reviews</span>"
+    return rows_html, indicator, page
+
+
+def render_category_counts(df: pd.DataFrame):
+    if df is None or df.empty:
+        return "<p style='color:#888780;'>No data yet.</p>", 0, 0, 0, 0
+    total = len(df)
+    toxic = (df["label"] == "Toxic").sum()
+    neg = (df["label"] == "Constructive Negative").sum()
+    neutral = (df["label"] == "Neutral").sum()
+    return total, toxic, neg, neutral
+
+
+def render_history(history: list):
+    """Renders the sidebar's 'Recent' list from actual classification history,
+    newest first. `history` is a list of {"review": str, "label": str} dicts,
+    stored in a gr.State so it persists across interactions in the session."""
+    if not history:
+        return f"<p style='color:{COLORS['text_muted']}; font-size:12px;'>Nothing classified yet.</p>"
+    items = ""
+    for entry in reversed(history[-50:]):
+        _, dot_color = badge_colors(entry["label"])
+        snippet = entry["review"][:28] + ("..." if len(entry["review"]) > 28 else "")
+        items += f"""
+        <div style="display:flex; align-items:center; gap:8px; padding:6px 2px; font-size:12.5px; color:{COLORS['text_secondary']};">
+          <span style="width:7px; height:7px; border-radius:50%; background:{dot_color}; flex-shrink:0;"></span>
+          <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">"{snippet}"</span>
+        </div>
+        """
+    return items
+
+
+# ---------------------------------------------------------------------------
+# EVENT HANDLERS
+# ---------------------------------------------------------------------------
+
+def classify_single(review_text, history):
+    if not review_text or not review_text.strip():
+        return "<p style='color:#888780; font-size:13px;'>Paste a review first.</p>", history, render_history(history)
+    label, conf = classify(review_text)
+    history = history + [{"review": review_text.strip(), "label": label}]
+    return render_single_result(label, conf), history, render_history(history)
+
+
+def classify_batch(file, history):
+    if file is None:
+        return None, "<p style='color:#888780;'>Upload a CSV with a 'review' column.</p>", "", "All\n0", "Toxic\n0", "Constructive Negative\n0", "Neutral\n0", history, render_history(history), "All", 0
+
+    df = pd.read_csv(file.name)
+    # expects a column literally named "review"; fall back to first column
+    col = "review" if "review" in df.columns else df.columns[0]
+
+    labels, confs = [], []
+    for text in df[col].astype(str):
+        label, conf = classify(text)
+        labels.append(label)
+        confs.append(conf)
+        history = history + [{"review": text.strip(), "label": label}]
+
+    result_df = pd.DataFrame({"review": df[col], "label": labels, "confidence": confs})
+    total, toxic, neg, neutral = render_category_counts(result_df)
+    rows_html, indicator, page = render_review_page(result_df, "All", 0)
+    return (
+        result_df,
+        rows_html,
+        indicator,
+        f"All\n{total}",
+        f"Toxic\n{toxic}",
+        f"Constructive Negative\n{neg}",
+        f"Neutral\n{neutral}",
+        history,
+        render_history(history),
+        "All",
+        page,
+    )
+
+
+def on_category_click(result_df, label):
+    rows_html, indicator, page = render_review_page(result_df, label, 0)
+    return rows_html, indicator, label, page
+
+
+def on_page_change(result_df, filter_label, page, delta):
+    rows_html, indicator, page = render_review_page(result_df, filter_label, page + delta)
+    return rows_html, indicator, page
+
+
+# ---------------------------------------------------------------------------
+# UI LAYOUT
+# ---------------------------------------------------------------------------
+
+theme = gr.themes.Base(
+    primary_hue="blue",
+    neutral_hue="zinc",
+    font=[gr.themes.GoogleFont("Inter"), "sans-serif"],
+).set(
+    body_background_fill=COLORS["bg"],
+    block_background_fill=COLORS["surface2"],
+    border_color_primary=COLORS["border"],
+)
+
+with gr.Blocks(title="Steam Toxicity Classifier") as demo:
+    batch_state = gr.State(pd.DataFrame())
+    history_state = gr.State([])  # list of {"review": str, "label": str}, newest last
+
+    with gr.Row():
+        # --- Sidebar ---
+        with gr.Column(scale=1, elem_id="sidebar"):
+            gr.Markdown("🛡️ **Toxicity Classifier**")
+            new_review_btn = gr.Button("+ New review", size="sm")
+            gr.Markdown("Recent", elem_classes="sidebar-label")
+            history_display = gr.HTML(render_history([]), elem_id="history-list")
+            gr.Markdown("---")
+            gr.Markdown(f"<span style='color:{COLORS['text_muted']}; font-size:11px;'>DistilBERT · fine-tuned</span>")
+
+        # --- Main content ---
+        with gr.Column(scale=4, elem_id="main-card"):
+            with gr.Tabs() as tabs:
+                with gr.Tab("Single review", id=0):
+                    review_input = gr.Textbox(
+                        label="Paste a Steam review",
+                        placeholder="This game is absolute trash, the devs should...",
+                        lines=4,
+                    )
+                    classify_btn = gr.Button("Classify")
+                    single_result = gr.HTML()
+
+                    classify_btn.click(
+                        fn=lambda: gr.update(value="Classifying...", interactive=False),
+                        inputs=None,
+                        outputs=classify_btn,
+                    ).then(
+                        fn=classify_single,
+                        inputs=[review_input, history_state],
+                        outputs=[single_result, history_state, history_display],
+                    ).then(
+                        fn=lambda: gr.update(value="Classify", interactive=True),
+                        inputs=None,
+                        outputs=classify_btn,
+                    )
+
+                    new_review_btn.click(
+                        fn=lambda: ("", "", gr.Tabs(selected=0)),
+                        inputs=None,
+                        outputs=[review_input, single_result, tabs],
+                    )
+
+                with gr.Tab("Batch Upload", id=1):
+                    with gr.Row():
+                        file_input = gr.File(label="Upload CSV of reviews", file_types=[".csv"])
+                        upload_btn = gr.Button("Classify batch")
+
+                    with gr.Row():
+                        all_count = gr.Button("All\n0", size="sm", elem_id="cat-all")
+                        toxic_count = gr.Button("Toxic\n0", size="sm", elem_id="cat-toxic")
+                        neg_count = gr.Button("Constructive Negative\n0", size="sm", elem_id="cat-neg")
+                        neutral_count = gr.Button("Neutral\n0", size="sm", elem_id="cat-neutral")
+
+                    review_list = gr.HTML()
+
+                    filter_state = gr.State("All")
+                    page_state = gr.State(0)
+
+                    with gr.Row(elem_id="pagination-row"):
+                        prev_btn = gr.Button("< Prev", size="sm", scale=0)
+                        page_indicator = gr.HTML()
+                        next_btn = gr.Button("Next >", size="sm", scale=0)
+
+                    upload_btn.click(
+                        fn=lambda: gr.update(value="Classifying...", interactive=False),
+                        inputs=None,
+                        outputs=upload_btn,
+                    ).then(
+                        fn=classify_batch,
+                        inputs=[file_input, history_state],
+                        outputs=[batch_state, review_list, page_indicator, all_count, toxic_count, neg_count, neutral_count, history_state, history_display, filter_state, page_state],
+                    ).then(
+                        fn=lambda: gr.update(value="Classify batch", interactive=True),
+                        inputs=None,
+                        outputs=upload_btn,
+                    )
+
+                    all_count.click(fn=lambda df: on_category_click(df, "All"), inputs=batch_state, outputs=[review_list, page_indicator, filter_state, page_state])
+                    toxic_count.click(fn=lambda df: on_category_click(df, "Toxic"), inputs=batch_state, outputs=[review_list, page_indicator, filter_state, page_state])
+                    neg_count.click(fn=lambda df: on_category_click(df, "Constructive Negative"), inputs=batch_state, outputs=[review_list, page_indicator, filter_state, page_state])
+                    neutral_count.click(fn=lambda df: on_category_click(df, "Neutral"), inputs=batch_state, outputs=[review_list, page_indicator, filter_state, page_state])
+
+                    prev_btn.click(fn=lambda df, label, page: on_page_change(df, label, page, -1), inputs=[batch_state, filter_state, page_state], outputs=[review_list, page_indicator, page_state])
+                    next_btn.click(fn=lambda df, label, page: on_page_change(df, label, page, 1), inputs=[batch_state, filter_state, page_state], outputs=[review_list, page_indicator, page_state])
+
+
+if __name__ == "__main__":
+    import webbrowser
+    import threading
+
+    def _open_dark_mode():
+        webbrowser.open("http://127.0.0.1:7860/?__theme=dark")
+
+    # Give the server a moment to start before opening the browser tab
+    threading.Timer(1.5, _open_dark_mode).start()
+    demo.queue().launch(theme=theme, css=CUSTOM_CSS)
